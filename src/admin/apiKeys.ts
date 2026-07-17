@@ -1,5 +1,6 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
+import { hashGatewayApiKey } from "../gatewayApiKeyHash.js";
 
 const KEY_PREFIX = "gwk_";
 
@@ -25,16 +26,12 @@ function toApiKey(row: ApiKeyRow): GatewayApiKey {
   return { id: row.id, name: row.name, rateLimitTpm: row.rate_limit_tpm, createdAt: row.created_at };
 }
 
-function hashKey(key: string): string {
-  return createHash("sha256").update(key).digest("hex");
-}
-
 export function createApiKey(db: Database.Database, name: string, rateLimitTpm: number): CreatedGatewayApiKey {
   const key = `${KEY_PREFIX}${randomBytes(32).toString("hex")}`;
 
   const result = db
     .prepare("INSERT INTO gateway_api_keys (name, key_hash, rate_limit_tpm) VALUES (?, ?, ?)")
-    .run(name, hashKey(key), rateLimitTpm);
+    .run(name, hashGatewayApiKey(key), rateLimitTpm);
 
   const row = db
     .prepare("SELECT id, name, rate_limit_tpm, created_at FROM gateway_api_keys WHERE id = ?")

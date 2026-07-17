@@ -1,7 +1,11 @@
 import type { ClaudeSubprocess, ClaudeSubprocessResult } from "./types.js";
 
 const CANNED_RESPONSE: ClaudeSubprocessResult = {
-  raw: '{"role":"assistant","content":"stubbed response"}',
+  raw: [
+    '{"type":"system","subtype":"init"}',
+    '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"stubbed response"}]}}',
+    '{"type":"result","subtype":"success","result":"stubbed response"}',
+  ].join("\n"),
 };
 
 export class StubClaudeSubprocess implements ClaudeSubprocess {
