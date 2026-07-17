@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAdminServer } from "../src/admin/server.js";
+import { makeTestConfig } from "./testConfig.js";
 import type { FastifyInstance } from "fastify";
+
+const config = makeTestConfig();
 
 describe("Admin Console server", () => {
   let server: FastifyInstance;
   let baseUrl: string;
 
   beforeEach(async () => {
-    server = buildAdminServer();
+    server = await buildAdminServer(config);
     const address = await server.listen({ port: 0, host: "127.0.0.1" });
     baseUrl = address;
   });

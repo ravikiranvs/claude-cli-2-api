@@ -15,4 +15,23 @@ describe("loadConfig", () => {
     expect(config.gatewayPort).toBe(3000);
     expect(config.adminPort).toBe(3001);
   });
+
+  it("reads the admin credentials from the environment", () => {
+    const config = loadConfig({ ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "hunter2" });
+
+    expect(config.adminUsername).toBe("admin");
+    expect(config.adminPassword).toBe("hunter2");
+  });
+
+  it("derives the session secret from ADMIN_SECRET when set", () => {
+    const config = loadConfig({ ADMIN_PASSWORD: "hunter2", ADMIN_SECRET: "a-separate-secret" });
+
+    expect(config.adminSessionSecret).toBe("a-separate-secret");
+  });
+
+  it("falls back to ADMIN_PASSWORD for the session secret when ADMIN_SECRET is unset", () => {
+    const config = loadConfig({ ADMIN_PASSWORD: "hunter2" });
+
+    expect(config.adminSessionSecret).toBe("hunter2");
+  });
 });

@@ -18,7 +18,7 @@ export async function start(env: Partial<Record<string, string>>): Promise<Runni
   migrate(config.databasePath);
 
   const gateway = buildGatewayServer();
-  const admin = buildAdminServer();
+  const admin = await buildAdminServer(config);
 
   const gatewayAddress = await gateway.listen({ port: config.gatewayPort, host: "127.0.0.1" });
   const adminAddress = await admin.listen({ port: config.adminPort, host: "127.0.0.1" });

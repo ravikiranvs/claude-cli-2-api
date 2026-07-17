@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
+export const HEALTH_PATH = "/health";
+
 export function registerHealthRoute(server: FastifyInstance): void {
-  server.get("/health", async () => ({ status: "ok" }));
+  server.get(HEALTH_PATH, async () => ({ status: "ok" }));
 }
