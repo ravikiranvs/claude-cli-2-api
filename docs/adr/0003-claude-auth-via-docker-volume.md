@@ -1,0 +1,3 @@
+# Claude authentication persisted via Docker volume
+
+The `claude login` OAuth flow stores credentials in `~/.claude`. Rather than injecting credentials via environment variables, we mount `~/.claude` as a named Docker volume so it survives container restarts. This means authentication is a one-time manual step (`docker exec` into the container and run `claude login`) rather than a config value. The trade-off is that credential rotation or CI/CD deployment requires either re-running the login flow or copying the volume — but it keeps us compatible with however Claude Code's auth mechanism evolves without requiring us to reverse-engineer the credential format.
