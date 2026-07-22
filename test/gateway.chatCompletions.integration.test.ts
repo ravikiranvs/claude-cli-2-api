@@ -108,4 +108,37 @@ describe("Gateway auth + chat completions (integration)", () => {
 
     expect(response.status).toBe(401);
   });
+
+  it("accepts an image content block through the full auth + dispatch + Trace path", async () => {
+    const tinyPngDataUri =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "what is this?" },
+              { type: "image_url", image_url: { url: tinyPngDataUri } },
+            ],
+          },
+        ],
+      }),
+    });
+    const body = (await response.json()) as Record<string, any>;
+
+    expect(response.status).toBe(200);
+    expect(body.choices[0].message.content).toBe("stubbed response");
+
+    const traceDb = openDatabase(databasePath);
+    const trace = traceDb.prepare("SELECT * FROM traces").get() as Record<string, unknown>;
+    traceDb.close();
+
+    expect(trace.http_status).toBe(200);
+    expect(trace.endpoint).toBe("/v1/chat/completions");
+  });
 });

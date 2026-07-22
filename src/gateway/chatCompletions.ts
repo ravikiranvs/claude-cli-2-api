@@ -3,6 +3,8 @@ import type Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { ClaudeSubprocess } from "../claude/types.js";
 import { insertTrace } from "../db/traces.js";
+import { buildPromptWithImages, isValidContent, MAX_REQUEST_BODY_BYTES, validateImageContent } from "./chatImages.js";
+import type { ChatMessageInput } from "./chatImages.js";
 import { estimateTokens, extractTextFromLine, NO_PARSEABLE_OUTPUT_MESSAGE } from "./claudeOutput.js";
 import { dispatchNonStreamingCompletion } from "./completionDispatch.js";
 import { gatewayErrorBody } from "./errorBody.js";
@@ -11,10 +13,7 @@ import { sendErrorAndTrace } from "./routeErrors.js";
 
 export const CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
 
-interface ChatMessage {
-  role: string;
-  content: string;
-}
+type ChatMessage = ChatMessageInput;
 
 interface ChatCompletionRequestBody {
   model?: string;
@@ -31,13 +30,9 @@ function isValidMessages(messages: unknown): messages is ChatMessage[] {
         typeof message === "object" &&
         message !== null &&
         typeof (message as ChatMessage).role === "string" &&
-        typeof (message as ChatMessage).content === "string",
+        isValidContent((message as ChatMessage).content),
     )
   );
-}
-
-function buildPrompt(messages: ChatMessage[]): string {
-  return messages.map((message) => `${message.role}: ${message.content}`).join("\n\n");
 }
 
 interface ResponseMeta {
@@ -139,129 +134,169 @@ export function registerChatCompletionsRoute(
   claudeSubprocess: ClaudeSubprocess,
   rateLimiter: TokenPerMinuteRateLimiter,
 ): void {
-  server.post<{ Body: ChatCompletionRequestBody }>(CHAT_COMPLETIONS_PATH, async (request, reply) => {
-    const { model, messages } = request.body ?? {};
-    const requestBodyJson = JSON.stringify(request.body ?? {});
-    const gatewayApiKeyId = request.gatewayApiKeyId ?? null;
-    const rateLimitTpm = request.gatewayApiKeyRateLimitTpm ?? null;
+  server.post<{ Body: ChatCompletionRequestBody }>(
+    CHAT_COMPLETIONS_PATH,
+    { bodyLimit: MAX_REQUEST_BODY_BYTES },
+    async (request, reply) => {
+      const { model, messages } = request.body ?? {};
+      const requestBodyJson = JSON.stringify(request.body ?? {});
+      const gatewayApiKeyId = request.gatewayApiKeyId ?? null;
+      const rateLimitTpm = request.gatewayApiKeyRateLimitTpm ?? null;
 
-    const sendError = (httpStatus: number, message: string, type: string): void => {
-      sendErrorAndTrace(reply, db, CHAT_COMPLETIONS_PATH, gatewayApiKeyId, requestBodyJson, httpStatus, message, type);
-    };
+      const sendError = (httpStatus: number, message: string, type: string): void => {
+        sendErrorAndTrace(
+          reply,
+          db,
+          CHAT_COMPLETIONS_PATH,
+          gatewayApiKeyId,
+          requestBodyJson,
+          httpStatus,
+          message,
+          type,
+        );
+      };
 
-    if (typeof model !== "string" || model.length === 0 || !isValidMessages(messages)) {
-      sendError(
-        400,
-        "`model` and a non-empty `messages` array (each with string `role` and `content`) are required",
-        "invalid_request_error",
-      );
-      return;
-    }
+      if (typeof model !== "string" || model.length === 0 || !isValidMessages(messages)) {
+        sendError(
+          400,
+          "`model` and a non-empty `messages` array (each with string `role` and `content`) are required",
+          "invalid_request_error",
+        );
+        return;
+      }
 
-    const prompt = buildPrompt(messages);
+      const imageValidationError = validateImageContent(messages);
+      if (imageValidationError !== null) {
+        sendError(400, imageValidationError, "invalid_request_error");
+        return;
+      }
 
-    if (!request.body?.stream) {
-      await dispatchNonStreamingCompletion({
-        db,
-        claudeSubprocess,
-        rateLimiter,
-        reply,
-        endpoint: CHAT_COMPLETIONS_PATH,
-        gatewayApiKeyId,
-        rateLimitTpm,
-        requestBodyJson,
-        prompt,
-        buildResponseBody: (assistantText, promptTokens, completionTokens) => ({
-          ...buildCompletionResponse(
-            { id: `chatcmpl-${randomUUID()}`, created: Math.floor(Date.now() / 1000), model },
-            assistantText,
-          ),
+      let prompt: string;
+      let cleanupImages: () => Promise<void>;
+      try {
+        ({ prompt, cleanup: cleanupImages } = await buildPromptWithImages(messages));
+      } catch (err) {
+        sendError(
+          502,
+          `Failed to process image content: ${err instanceof Error ? err.message : String(err)}`,
+          "api_error",
+        );
+        return;
+      }
+
+      try {
+        if (!request.body?.stream) {
+          await dispatchNonStreamingCompletion({
+            db,
+            claudeSubprocess,
+            rateLimiter,
+            reply,
+            endpoint: CHAT_COMPLETIONS_PATH,
+            gatewayApiKeyId,
+            rateLimitTpm,
+            requestBodyJson,
+            prompt,
+            buildResponseBody: (assistantText, promptTokens, completionTokens) => ({
+              ...buildCompletionResponse(
+                { id: `chatcmpl-${randomUUID()}`, created: Math.floor(Date.now() / 1000), model },
+                assistantText,
+              ),
+              usage: {
+                prompt_tokens: promptTokens,
+                completion_tokens: completionTokens,
+                total_tokens: promptTokens + completionTokens,
+              },
+            }),
+          });
+          return;
+        }
+
+        const promptTokens = estimateTokens(prompt);
+        const rateLimitNow = Date.now();
+
+        if (
+          gatewayApiKeyId !== null &&
+          rateLimitTpm !== null &&
+          !rateLimiter.tryConsume(gatewayApiKeyId, rateLimitTpm, promptTokens, rateLimitNow)
+        ) {
+          sendError(
+            429,
+            `Rate limit exceeded: this Gateway API Key is limited to ${rateLimitTpm} tokens per minute`,
+            "rate_limit_error",
+          );
+          return;
+        }
+
+        const iterator = claudeSubprocess.stream(prompt)[Symbol.asyncIterator]();
+
+        let first: IteratorResult<string>;
+        try {
+          first = await iterator.next();
+        } catch (err) {
+          sendError(
+            502,
+            `Claude Subprocess failed: ${err instanceof Error ? err.message : String(err)}`,
+            "api_error",
+          );
+          return;
+        }
+
+        if (first.done) {
+          sendError(
+            502,
+            `Claude Subprocess returned an unparseable response: ${NO_PARSEABLE_OUTPUT_MESSAGE}`,
+            "api_error",
+          );
+          return;
+        }
+
+        reply.hijack();
+        reply.raw.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+
+        const meta: ResponseMeta = { id: `chatcmpl-${randomUUID()}`, created: Math.floor(Date.now() / 1000), model };
+        const { assistantText, errorMessage } = await pipeStreamToSse(
+          iterator,
+          first.value,
+          (chunk) => reply.raw.write(chunk),
+          meta,
+        );
+        reply.raw.end();
+
+        const completionTokens = estimateTokens(assistantText);
+        if (gatewayApiKeyId !== null) {
+          rateLimiter.record(gatewayApiKeyId, completionTokens, rateLimitNow);
+        }
+        const responseBody: Record<string, unknown> = {
+          ...buildCompletionResponse(meta, assistantText),
           usage: {
             prompt_tokens: promptTokens,
             completion_tokens: completionTokens,
             total_tokens: promptTokens + completionTokens,
           },
-        }),
-      });
-      return;
-    }
-
-    const promptTokens = estimateTokens(prompt);
-    const rateLimitNow = Date.now();
-
-    if (
-      gatewayApiKeyId !== null &&
-      rateLimitTpm !== null &&
-      !rateLimiter.tryConsume(gatewayApiKeyId, rateLimitTpm, promptTokens, rateLimitNow)
-    ) {
-      sendError(
-        429,
-        `Rate limit exceeded: this Gateway API Key is limited to ${rateLimitTpm} tokens per minute`,
-        "rate_limit_error",
-      );
-      return;
-    }
-
-    const iterator = claudeSubprocess.stream(prompt)[Symbol.asyncIterator]();
-
-    let first: IteratorResult<string>;
-    try {
-      first = await iterator.next();
-    } catch (err) {
-      sendError(502, `Claude Subprocess failed: ${err instanceof Error ? err.message : String(err)}`, "api_error");
-      return;
-    }
-
-    if (first.done) {
-      sendError(
-        502,
-        `Claude Subprocess returned an unparseable response: ${NO_PARSEABLE_OUTPUT_MESSAGE}`,
-        "api_error",
-      );
-      return;
-    }
-
-    reply.hijack();
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
-
-    const meta: ResponseMeta = { id: `chatcmpl-${randomUUID()}`, created: Math.floor(Date.now() / 1000), model };
-    const { assistantText, errorMessage } = await pipeStreamToSse(
-      iterator,
-      first.value,
-      (chunk) => reply.raw.write(chunk),
-      meta,
-    );
-    reply.raw.end();
-
-    const completionTokens = estimateTokens(assistantText);
-    if (gatewayApiKeyId !== null) {
-      rateLimiter.record(gatewayApiKeyId, completionTokens, rateLimitNow);
-    }
-    const responseBody: Record<string, unknown> = {
-      ...buildCompletionResponse(meta, assistantText),
-      usage: {
-        prompt_tokens: promptTokens,
-        completion_tokens: completionTokens,
-        total_tokens: promptTokens + completionTokens,
-      },
-    };
-    if (errorMessage !== null) {
-      // The subprocess failed after the 200 response was already committed to the wire, so
-      // the HTTP status can't change — but the Trace must not claim a clean success.
-      responseBody.error = gatewayErrorBody(`Claude Subprocess failed mid-stream: ${errorMessage}`, "api_error")
-        .error;
-    }
-    insertTrace(db, {
-      gatewayApiKeyId,
-      endpoint: CHAT_COMPLETIONS_PATH,
-      httpStatus: 200,
-      requestBody: requestBodyJson,
-      responseBody: JSON.stringify(responseBody),
-      tokenCount: promptTokens + completionTokens,
-    });
-  });
+        };
+        if (errorMessage !== null) {
+          // The subprocess failed after the 200 response was already committed to the wire, so
+          // the HTTP status can't change — but the Trace must not claim a clean success.
+          responseBody.error = gatewayErrorBody(`Claude Subprocess failed mid-stream: ${errorMessage}`, "api_error")
+            .error;
+        }
+        insertTrace(db, {
+          gatewayApiKeyId,
+          endpoint: CHAT_COMPLETIONS_PATH,
+          httpStatus: 200,
+          requestBody: requestBodyJson,
+          responseBody: JSON.stringify(responseBody),
+          tokenCount: promptTokens + completionTokens,
+        });
+      } finally {
+        // The Claude Subprocess has exited by this point on every path above (dispatch already
+        // awaited, or the stream fully consumed), so any temp image files are safe to delete.
+        await cleanupImages();
+      }
+    },
+  );
 }
