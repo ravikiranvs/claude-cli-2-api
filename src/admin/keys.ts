@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import { createApiKey, listActiveApiKeys, revokeApiKey, type GatewayApiKey } from "./apiKeys.js";
+import { escapeHtml } from "./html.js";
+import { registerNoStoreHook } from "./noStore.js";
 
 export const KEYS_PATH = "/keys";
 
@@ -11,15 +13,6 @@ interface CreateKeyBody {
 
 interface RevokeKeyParams {
   id: string;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function renderKeysPage(
@@ -73,11 +66,7 @@ function renderKeysPage(
 }
 
 export function registerKeysRoutes(server: FastifyInstance, db: Database.Database): void {
-  server.addHook("onSend", async (request, reply) => {
-    if (request.url.split("?")[0].startsWith(KEYS_PATH)) {
-      reply.header("Cache-Control", "no-store");
-    }
-  });
+  registerNoStoreHook(server, KEYS_PATH);
 
   server.get(KEYS_PATH, async (_request, reply) => {
     reply.type("text/html").send(renderKeysPage(listActiveApiKeys(db)));

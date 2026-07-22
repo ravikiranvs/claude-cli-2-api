@@ -8,6 +8,7 @@ import { registerAuthHook } from "./auth.js";
 import { registerHomeRoute } from "./home.js";
 import { registerKeysRoutes } from "./keys.js";
 import { registerLoginRoutes } from "./login.js";
+import { registerTracesRoutes } from "./traces.js";
 
 export async function buildAdminServer(config: Config): Promise<FastifyInstance> {
   const server = Fastify();
@@ -25,6 +26,7 @@ export async function buildAdminServer(config: Config): Promise<FastifyInstance>
   registerAuthHook(server, config);
   registerHomeRoute(server);
   registerKeysRoutes(server, db);
+  registerTracesRoutes(server, db);
 
   return server;
 }

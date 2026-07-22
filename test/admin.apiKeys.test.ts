@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createApiKey, listActiveApiKeys, revokeApiKey } from "../src/admin/apiKeys.js";
+import { createApiKey, listActiveApiKeys, listAllApiKeys, revokeApiKey } from "../src/admin/apiKeys.js";
 import { openDatabase } from "../src/db/connection.js";
 
 describe("apiKeys", () => {
@@ -64,5 +64,15 @@ describe("apiKeys", () => {
     expect(revokeApiKey(db, created.id)).toBe(true);
     expect(revokeApiKey(db, created.id)).toBe(false);
     expect(revokeApiKey(db, 999999)).toBe(false);
+  });
+
+  it("includes revoked keys when listing all keys", () => {
+    const created = createApiKey(db, "ci-bot", 1000);
+    revokeApiKey(db, created.id);
+
+    const keys = listAllApiKeys(db);
+
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toMatchObject({ name: "ci-bot" });
   });
 });

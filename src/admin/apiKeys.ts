@@ -50,6 +50,14 @@ export function listActiveApiKeys(db: Database.Database): GatewayApiKey[] {
   return rows.map(toApiKey);
 }
 
+export function listAllApiKeys(db: Database.Database): GatewayApiKey[] {
+  const rows = db
+    .prepare("SELECT id, name, rate_limit_tpm, created_at FROM gateway_api_keys ORDER BY name, id")
+    .all() as ApiKeyRow[];
+
+  return rows.map(toApiKey);
+}
+
 export function revokeApiKey(db: Database.Database, id: number): boolean {
   const result = db
     .prepare(
