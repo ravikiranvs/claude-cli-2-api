@@ -12,7 +12,7 @@ export class RealClaudeSubprocess implements ClaudeSubprocess {
   }
 
   async *stream(prompt: string): AsyncIterable<string> {
-    const child = spawn("claude", ["-p", prompt, "--output-format", "stream-json"]);
+    const child = spawn("claude", ["-p", prompt, "--output-format", "stream-json", "--verbose"]);
 
     let stderr = "";
     child.stderr.on("data", (chunk: Buffer) => {

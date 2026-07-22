@@ -1,6 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { describe, expect, it, vi } from "vitest";
 import type { PooledClaudeSubprocess } from "../src/claude/concurrencyPool.js";
 import { createClaudeSubprocess } from "../src/claude/index.js";
+
+const mockSpawn = vi.fn();
+vi.mock("node:child_process", () => ({
+  spawn: (...args: unknown[]) => mockSpawn(...args),
+}));
+
+const { RealClaudeSubprocess } = await import("../src/claude/subprocess.js");
+
+function createFakeChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: PassThrough;
+    stderr: PassThrough;
+  };
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  return child;
+}
 
 describe("createClaudeSubprocess", () => {
   it("returns a stub that resolves with a canned response when test mode is enabled, without spawning the real claude CLI", async () => {
@@ -40,6 +59,32 @@ describe("createClaudeSubprocess", () => {
       '{"type":"system","subtype":"init"}',
       '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"stubbed response"}]}}',
       '{"type":"result","subtype":"success","result":"stubbed response"}',
+    ]);
+  });
+});
+
+describe("RealClaudeSubprocess", () => {
+  it("passes --verbose alongside --output-format stream-json, since the real CLI rejects stream-json in print mode without it", async () => {
+    const child = createFakeChild();
+    mockSpawn.mockReturnValue(child);
+
+    const subprocess = new RealClaudeSubprocess();
+    const draining = (async () => {
+      for await (const _line of subprocess.stream("hello")) {
+        // drain
+      }
+    })();
+
+    child.stdout.end();
+    child.emit("close", 0);
+    await draining;
+
+    expect(mockSpawn).toHaveBeenCalledWith("claude", [
+      "-p",
+      "hello",
+      "--output-format",
+      "stream-json",
+      "--verbose",
     ]);
   });
 });
