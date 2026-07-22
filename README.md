@@ -9,7 +9,9 @@ It ships as a Docker container with two things running inside:
 
 ## Quick start (Docker)
 
-```
+**Linux / macOS (bash/zsh):**
+
+```bash
 docker build -t claude-gateway .
 docker volume create claude-auth
 docker run -d --name claude-gateway \
@@ -20,6 +22,22 @@ docker run -d --name claude-gateway \
   -e ADMIN_PASSWORD=change-me \
   claude-gateway
 ```
+
+**Windows (PowerShell):**
+
+```powershell
+docker build -t claude-gateway .
+docker volume create claude-auth
+docker run -d --name claude-gateway `
+  -p 3000:3000 -p 3001:3001 `
+  -v claude-auth:/home/node/.claude `
+  -v gateway-data:/app/data `
+  -e ADMIN_USERNAME=admin `
+  -e ADMIN_PASSWORD=change-me `
+  claude-gateway
+```
+
+> PowerShell uses a backtick (`` ` ``) for line continuation, not a backslash — or just put the whole command on one line.
 
 Then log Claude Code in, once, inside the running container:
 
@@ -52,6 +70,8 @@ If you change `GATEWAY_PORT` or `ADMIN_PORT`, update the `-p` mappings on `docke
 2. Go to **Keys** and create a Gateway API Key. The key is shown once — copy it now.
 3. Call the gateway like you would call OpenAI's API, using that key as your bearer token:
 
+**Linux / macOS (bash/zsh):**
+
 ```bash
 curl http://localhost:3000/v1/chat/completions \
   -H "Authorization: Bearer gwk_..." \
@@ -61,6 +81,17 @@ curl http://localhost:3000/v1/chat/completions \
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 ```
+
+**Windows (PowerShell):**
+
+```powershell
+curl.exe http://localhost:3000/v1/chat/completions `
+  -H "Authorization: Bearer gwk_..." `
+  -H "Content-Type: application/json" `
+  -d '{\"model\": \"claude\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello!\"}]}'
+```
+
+> Use `curl.exe`, not the `curl` alias for `Invoke-WebRequest` that PowerShell defines by default.
 
 This also works as a drop-in base URL with the official OpenAI SDKs — just set `baseURL` to `http://localhost:3000/v1` and `apiKey` to your `gwk_...` key.
 
