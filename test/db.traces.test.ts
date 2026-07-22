@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApiKey, revokeApiKey } from "../src/admin/apiKeys.js";
 import { openDatabase } from "../src/db/connection.js";
-import { insertTrace, listTraces } from "../src/db/traces.js";
+import { deleteExpiredTraces, insertTrace, listTraces } from "../src/db/traces.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -155,5 +155,54 @@ describe("listTraces", () => {
 
     expect(traces[0]!.requestBody).toBe('{"model":"claude","messages":[]}');
     expect(traces[0]!.responseBody).toBe('{"id":"chatcmpl-1"}');
+  });
+});
+
+describe("deleteExpiredTraces", () => {
+  let db: Database.Database;
+  const now = Date.parse("2026-07-22T00:00:00.000Z");
+
+  beforeEach(() => {
+    db = openDatabase(":memory:");
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function insertBackdated(ageMs: number, overrides: Partial<Parameters<typeof insertTrace>[1]> = {}): number {
+    insertTrace(db, {
+      gatewayApiKeyId: null,
+      endpoint: "/v1/chat/completions",
+      httpStatus: 200,
+      requestBody: "{}",
+      responseBody: "{}",
+      tokenCount: 1,
+      ...overrides,
+    });
+
+    const id = (db.prepare("SELECT last_insert_rowid() AS id").get() as { id: number }).id;
+    db.prepare("UPDATE traces SET created_at = ? WHERE id = ?").run(
+      new Date(now - ageMs).toISOString(),
+      id,
+    );
+    return id;
+  }
+
+  it("hard-deletes only traces older than 7 days", () => {
+    const oldId = insertBackdated(8 * DAY_MS, { endpoint: "/old" });
+    const recentId = insertBackdated(1 * DAY_MS, { endpoint: "/recent" });
+
+    const deletedCount = deleteExpiredTraces(db, now);
+
+    expect(deletedCount).toBe(1);
+    expect(db.prepare("SELECT id FROM traces WHERE id = ?").get(oldId)).toBeUndefined();
+    expect(db.prepare("SELECT id FROM traces WHERE id = ?").get(recentId)).toBeDefined();
+  });
+
+  it("returns 0 when nothing is old enough to delete", () => {
+    insertBackdated(1 * DAY_MS);
+
+    expect(deleteExpiredTraces(db, now)).toBe(0);
   });
 });

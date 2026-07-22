@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { retentionCutoffIso } from "../retention.js";
 
 export interface TraceInput {
   gatewayApiKeyId: number | null;
@@ -36,9 +37,6 @@ interface TraceRow {
   response_body: string | null;
 }
 
-const RETENTION_DAYS = 7;
-const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
-
 function toTrace(row: TraceRow): Trace {
   return {
     id: row.id,
@@ -68,7 +66,7 @@ export function insertTrace(db: Database.Database, trace: TraceInput): void {
 
 export function listTraces(db: Database.Database, options: ListTracesOptions = {}): Trace[] {
   const now = options.now ?? Date.now();
-  const cutoff = new Date(now - RETENTION_MS).toISOString();
+  const cutoff = retentionCutoffIso(now);
 
   const clauses = ["traces.created_at >= ?"];
   const params: (string | number)[] = [cutoff];
@@ -91,4 +89,11 @@ export function listTraces(db: Database.Database, options: ListTracesOptions = {
     .all(...params) as TraceRow[];
 
   return rows.map(toTrace);
+}
+
+/** Hard-deletes traces older than the retention window. Returns the number of rows removed. */
+export function deleteExpiredTraces(db: Database.Database, now: number = Date.now()): number {
+  const cutoff = retentionCutoffIso(now);
+  const result = db.prepare("DELETE FROM traces WHERE created_at < ?").run(cutoff);
+  return result.changes;
 }

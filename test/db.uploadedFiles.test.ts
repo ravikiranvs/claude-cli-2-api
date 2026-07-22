@@ -1,7 +1,15 @@
 import type Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/connection.js";
-import { createUploadedFile, deleteUploadedFile, getUploadedFile, listUploadedFiles } from "../src/db/uploadedFiles.js";
+import {
+  createUploadedFile,
+  deleteUploadedFile,
+  getUploadedFile,
+  listExpiredUploadedFiles,
+  listUploadedFiles,
+} from "../src/db/uploadedFiles.js";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 describe("uploadedFiles", () => {
   let db: Database.Database;
@@ -92,5 +100,38 @@ describe("uploadedFiles", () => {
     expect(deleteUploadedFile(db, "file-1")).toBe(true);
     expect(getUploadedFile(db, "file-1")).toBeUndefined();
     expect(deleteUploadedFile(db, "file-1")).toBe(false);
+  });
+
+  describe("listExpiredUploadedFiles", () => {
+    const now = Date.parse("2026-07-22T00:00:00.000Z");
+
+    function createBackdated(id: string, ageMs: number): void {
+      createUploadedFile(db, {
+        id,
+        filename: `${id}.txt`,
+        contentType: "text/plain",
+        byteSize: 1,
+        storagePath: `/data/uploads/${id}`,
+      });
+      db.prepare("UPDATE uploaded_files SET created_at = ? WHERE id = ?").run(
+        new Date(now - ageMs).toISOString(),
+        id,
+      );
+    }
+
+    it("returns only files older than 7 days", () => {
+      createBackdated("file-old", 8 * DAY_MS);
+      createBackdated("file-recent", 1 * DAY_MS);
+
+      const expired = listExpiredUploadedFiles(db, now);
+
+      expect(expired.map((file) => file.id)).toEqual(["file-old"]);
+    });
+
+    it("returns an empty array when nothing is old enough", () => {
+      createBackdated("file-recent", 1 * DAY_MS);
+
+      expect(listExpiredUploadedFiles(db, now)).toEqual([]);
+    });
   });
 });

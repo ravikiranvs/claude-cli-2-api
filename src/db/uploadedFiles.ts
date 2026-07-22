@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { retentionCutoffIso } from "../retention.js";
 
 export interface UploadedFile {
   id: string;
@@ -64,4 +65,11 @@ export function getUploadedFile(db: Database.Database, id: string): UploadedFile
 export function deleteUploadedFile(db: Database.Database, id: string): boolean {
   const result = db.prepare("DELETE FROM uploaded_files WHERE id = ?").run(id);
   return result.changes > 0;
+}
+
+/** Uploaded files older than the retention window, whose on-disk bytes and DB row still need removing. */
+export function listExpiredUploadedFiles(db: Database.Database, now: number = Date.now()): UploadedFile[] {
+  const cutoff = retentionCutoffIso(now);
+  const rows = db.prepare("SELECT * FROM uploaded_files WHERE created_at < ?").all(cutoff) as UploadedFileRow[];
+  return rows.map(toUploadedFile);
 }
