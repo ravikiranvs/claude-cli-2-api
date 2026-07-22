@@ -26,6 +26,10 @@ A semaphore that caps simultaneous Claude Subprocess invocations at 3, preventin
 A `claude -p` process spawned per Gateway request. Receives the client-supplied messages array as input and streams its output back via `--output-format stream-json`. Image inputs are written to a temporary file and passed as a file-path reference in the prompt.
 _Avoid_: Backend, LLM, model
 
+**Uploaded File**:
+A file a client uploads via `POST /v1/files`, stored on disk under the configured uploads directory (metadata — id, filename, content type, size, storage path — kept in SQLite). A chat message can reference an Uploaded File by id; the Gateway resolves it to its on-disk path and passes that path to the Claude Subprocess, the same way image inputs are (see Claude Subprocess) — this preserves Claude Code's own file-access tool use rather than inlining file content into the prompt (ADR-0001). Hard-deleted after 7 days, same cleanup job as Traces.
+_Avoid_: Attachment, blob
+
 ### Observability
 
 **Trace**:

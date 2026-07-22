@@ -1,3 +1,5 @@
 # SQLite as sole storage backend
 
 Gateway API Keys and Traces are stored in a single SQLite file inside the container. The expected load is low (a handful of keys, a week's worth of traces, 2–3 concurrent requests), and SQLite eliminates any external service dependency — the container is self-contained. The trade-off is that horizontal scaling requires migrating to an external database; that cost is acceptable given the single-instance deployment model.
+
+**Scope note (added with Uploaded Files, issue #13):** "sole storage backend" means SQLite is the only *database* — all structured/relational state (keys, Traces, Uploaded File metadata) lives there. It does not mean file bytes never touch disk outside SQLite: Uploaded File contents are written to the filesystem under the configured uploads directory, with only their metadata (id, filename, size, storage path) in SQLite, mirroring how image inputs are already written to temp files rather than stored as blobs. This was the PRD's stated design from the start ("the same cleanup job can handle both" Traces and uploaded files), not a new decision.

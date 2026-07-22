@@ -52,7 +52,13 @@ export interface ImageContentPart {
   image_url: { url: string };
 }
 
-export type ContentPart = TextContentPart | ImageContentPart;
+/** References a file previously uploaded via POST /v1/files, made available to the Claude Subprocess as context. */
+export interface FileContentPart {
+  type: "file";
+  file_id: string;
+}
+
+export type ContentPart = TextContentPart | ImageContentPart | FileContentPart;
 
 export interface ChatMessageInput {
   role: string;
@@ -73,10 +79,13 @@ function isContentPart(value: unknown): value is ContentPart {
       typeof (part.image_url as Record<string, unknown>).url === "string"
     );
   }
+  if (part.type === "file") {
+    return typeof part.file_id === "string";
+  }
   return false;
 }
 
-/** True for a valid OpenAI chat message `content` value: a string, or a non-empty array of text/image_url parts. */
+/** True for a valid OpenAI chat message `content` value: a string, or a non-empty array of text/image_url/file parts. */
 export function isValidContent(content: unknown): content is string | ContentPart[] {
   if (typeof content === "string") return true;
   return Array.isArray(content) && content.length > 0 && content.every(isContentPart);
@@ -125,19 +134,27 @@ export function validateImageContent(messages: ChatMessageInput[]): string | nul
   return null;
 }
 
-export interface PromptWithImages {
+export interface BuiltPrompt {
   prompt: string;
   /** Deletes every temp file written for this prompt. Call once the Claude Subprocess has exited, on both success and failure. */
   cleanup: () => Promise<void>;
 }
 
+export interface BuildPromptOptions {
+  /** Looks up an uploaded file's on-disk path by id, for `file` content parts. Undefined/no match is skipped silently — file references are validated (existence-checked) upstream by `validateFileReferences`. */
+  resolveFile?: (fileId: string) => { storagePath: string } | undefined;
+}
+
 /**
- * Builds the reconstructed prompt from a chat messages array. Image content blocks are
- * written to temp files (deleted by the returned `cleanup`) and referenced by path in the
- * prompt text. Messages are validated by `validateImageContent` first, so this assumes every
- * image_url is a well-formed, supported, in-limit data URI.
+ * Builds the reconstructed prompt from a chat messages array — the single string channel the
+ * Claude Subprocess accepts. Image content blocks are written to temp files (deleted by the
+ * returned `cleanup`) and referenced by path; `file` content parts referencing a previously
+ * uploaded file are resolved via `options.resolveFile` and referenced by their existing,
+ * persistent on-disk path (no temp file, no cleanup needed for those). Messages are validated
+ * by `validateImageContent`/`validateFileReferences` first, so this assumes every image_url is
+ * a well-formed, supported, in-limit data URI and every file_id resolves.
  */
-export async function buildPromptWithImages(messages: ChatMessageInput[]): Promise<PromptWithImages> {
+export async function buildPrompt(messages: ChatMessageInput[], options: BuildPromptOptions = {}): Promise<BuiltPrompt> {
   const tempFilePaths: string[] = [];
 
   const cleanup = async (): Promise<void> => {
@@ -157,6 +174,16 @@ export async function buildPromptWithImages(messages: ChatMessageInput[]): Promi
       for (const part of message.content) {
         if (part.type === "text") {
           parts.push(part.text);
+          continue;
+        }
+
+        if (part.type === "file") {
+          // Referenced by path, not inlined — ADR-0001 chose the Claude Subprocess specifically
+          // to preserve Claude Code's own agentic file access, so the CLI reads the file itself.
+          const resolved = options.resolveFile?.(part.file_id);
+          if (resolved) {
+            parts.push(`[file attached: ${resolved.storagePath}]`);
+          } // else: unresolved reference; validated upstream by validateFileReferences, unreachable in practice
           continue;
         }
 

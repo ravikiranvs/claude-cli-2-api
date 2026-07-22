@@ -5,6 +5,7 @@ export function makeTestConfig(overrides: Partial<Config> = {}): Config {
     gatewayPort: 3000,
     adminPort: 3001,
     databasePath: ":memory:",
+    uploadsDir: "./data/test-uploads",
     claudeSubprocessStub: true,
     adminUsername: "admin",
     adminPassword: "hunter2",

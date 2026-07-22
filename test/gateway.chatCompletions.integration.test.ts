@@ -11,6 +11,7 @@ import { makeTestConfig } from "./testConfig.js";
 describe("Gateway auth + chat completions (integration)", () => {
   let dir: string;
   let databasePath: string;
+  let uploadsDir: string;
   let server: FastifyInstance;
   let baseUrl: string;
   let apiKey: string;
@@ -19,6 +20,7 @@ describe("Gateway auth + chat completions (integration)", () => {
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "gateway-chat-"));
     databasePath = join(dir, "gateway.db");
+    uploadsDir = join(dir, "uploads");
 
     const setupDb = openDatabase(databasePath);
     apiKey = createApiKey(setupDb, "ci-bot", 1000).key;
@@ -27,7 +29,7 @@ describe("Gateway auth + chat completions (integration)", () => {
     revokedKey = revoked.key;
     setupDb.close();
 
-    server = buildGatewayServer(makeTestConfig({ databasePath }));
+    server = buildGatewayServer(makeTestConfig({ databasePath, uploadsDir }));
     baseUrl = await server.listen({ port: 0, host: "127.0.0.1" });
   });
 
@@ -140,5 +142,60 @@ describe("Gateway auth + chat completions (integration)", () => {
 
     expect(trace.http_status).toBe(200);
     expect(trace.endpoint).toBe("/v1/chat/completions");
+  });
+
+  it("referencing an uploaded file id in a chat message passes it through the full auth + dispatch + Trace path", async () => {
+    const form = new FormData();
+    form.append("file", new Blob([Buffer.from("quarterly numbers")], { type: "text/plain" }), "report.txt");
+    const uploadResponse = await fetch(`${baseUrl}/v1/files`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+    const uploaded = (await uploadResponse.json()) as Record<string, any>;
+    expect(uploadResponse.status).toBe(200);
+
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "summarize this" },
+              { type: "file", file_id: uploaded.id },
+            ],
+          },
+        ],
+      }),
+    });
+    const body = (await response.json()) as Record<string, any>;
+
+    expect(response.status).toBe(200);
+    expect(body.choices[0].message.content).toBe("stubbed response");
+
+    const traceDb = openDatabase(databasePath);
+    const trace = traceDb.prepare("SELECT * FROM traces ORDER BY id DESC").get() as Record<string, unknown>;
+    traceDb.close();
+
+    expect(trace.http_status).toBe(200);
+    expect(trace.endpoint).toBe("/v1/chat/completions");
+  });
+
+  it("rejects a chat message referencing an unknown file id with 400", async () => {
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: [{ type: "file", file_id: "file-does-not-exist" }] }],
+      }),
+    });
+    const body = (await response.json()) as Record<string, any>;
+
+    expect(response.status).toBe(400);
+    expect(body.error.type).toBe("invalid_request_error");
   });
 });

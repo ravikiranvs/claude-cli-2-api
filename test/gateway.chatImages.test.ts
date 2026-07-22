@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
-  buildPromptWithImages,
+  buildPrompt,
   isValidContent,
   MAX_IMAGES_PER_REQUEST,
   MAX_IMAGE_BYTES,
@@ -40,6 +40,14 @@ describe("isValidContent", () => {
 
   it("rejects an image_url part missing the nested url", () => {
     expect(isValidContent([{ type: "image_url", image_url: {} }])).toBe(false);
+  });
+
+  it("accepts a valid file part", () => {
+    expect(isValidContent([{ type: "file", file_id: "file-abc123" }])).toBe(true);
+  });
+
+  it("rejects a file part missing file_id", () => {
+    expect(isValidContent([{ type: "file" }])).toBe(false);
   });
 
   it("rejects a non-string, non-array content value", () => {
@@ -115,9 +123,9 @@ describe("validateImageContent", () => {
   });
 });
 
-describe("buildPromptWithImages", () => {
+describe("buildPrompt", () => {
   it("builds the same prompt as before for text-only messages", async () => {
-    const { prompt, cleanup } = await buildPromptWithImages([
+    const { prompt, cleanup } = await buildPrompt([
       { role: "user", content: "hi" },
       { role: "assistant", content: "hello" },
     ]);
@@ -127,7 +135,7 @@ describe("buildPromptWithImages", () => {
   });
 
   it("writes image bytes to a temp file and injects the path into the prompt", async () => {
-    const { prompt, cleanup } = await buildPromptWithImages([
+    const { prompt, cleanup } = await buildPrompt([
       {
         role: "user",
         content: [
@@ -151,7 +159,7 @@ describe("buildPromptWithImages", () => {
   });
 
   it("cleanup removes every temp file written across multiple images", async () => {
-    const { prompt, cleanup } = await buildPromptWithImages([
+    const { prompt, cleanup } = await buildPrompt([
       {
         role: "user",
         content: [
@@ -167,5 +175,34 @@ describe("buildPromptWithImages", () => {
 
     await cleanup();
     for (const path of paths) expect(existsSync(path)).toBe(false);
+  });
+
+  it("resolves a `file` content part via resolveFile and injects its stored path, without writing a temp file", async () => {
+    const { prompt, cleanup } = await buildPrompt(
+      [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "summarize this" },
+            { type: "file", file_id: "file-abc123" },
+          ],
+        },
+      ],
+      { resolveFile: (fileId) => (fileId === "file-abc123" ? { storagePath: "/data/uploads/file-abc123" } : undefined) },
+    );
+    await cleanup();
+
+    expect(prompt).toContain("summarize this");
+    expect(prompt).toContain("[file attached: /data/uploads/file-abc123]");
+  });
+
+  it("silently skips a `file` content part that resolveFile can't resolve", async () => {
+    const { prompt, cleanup } = await buildPrompt(
+      [{ role: "user", content: [{ type: "file", file_id: "file-missing" }] }],
+      { resolveFile: () => undefined },
+    );
+    await cleanup();
+
+    expect(prompt).not.toContain("[file attached:");
   });
 });

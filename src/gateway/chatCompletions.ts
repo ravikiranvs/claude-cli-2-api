@@ -3,7 +3,8 @@ import type Database from "better-sqlite3";
 import type { FastifyInstance } from "fastify";
 import type { ClaudeSubprocess } from "../claude/types.js";
 import { insertTrace } from "../db/traces.js";
-import { buildPromptWithImages, isValidContent, MAX_REQUEST_BODY_BYTES, validateImageContent } from "./chatImages.js";
+import { createFileResolver, validateFileReferences } from "./chatFiles.js";
+import { buildPrompt, isValidContent, MAX_REQUEST_BODY_BYTES, validateImageContent } from "./chatImages.js";
 import type { ChatMessageInput } from "./chatImages.js";
 import { appendToolsToPrompt, isValidTools, resolveTools } from "./chatTools.js";
 import type { ChatToolsRequestBody } from "./chatTools.js";
@@ -173,6 +174,12 @@ export function registerChatCompletionsRoute(
         return;
       }
 
+      const fileValidationError = validateFileReferences(messages, db);
+      if (fileValidationError !== null) {
+        sendError(400, fileValidationError, "invalid_request_error");
+        return;
+      }
+
       if (!isValidTools(tools) || !isValidTools(functions)) {
         sendError(400, "`tools` and `functions`, when present, must be arrays", "invalid_request_error");
         return;
@@ -181,7 +188,7 @@ export function registerChatCompletionsRoute(
       let prompt: string;
       let cleanupImages: () => Promise<void>;
       try {
-        ({ prompt, cleanup: cleanupImages } = await buildPromptWithImages(messages));
+        ({ prompt, cleanup: cleanupImages } = await buildPrompt(messages, { resolveFile: createFileResolver(db) }));
       } catch (err) {
         sendError(
           502,

@@ -20,6 +20,15 @@ CREATE TABLE IF NOT EXISTS traces (
   token_count         INTEGER,
   created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+CREATE TABLE IF NOT EXISTS uploaded_files (
+  id            TEXT PRIMARY KEY,
+  filename      TEXT NOT NULL,
+  content_type  TEXT,
+  byte_size     INTEGER NOT NULL,
+  storage_path  TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
 `;
 
 export function migrateDatabase(db: Database.Database): void {

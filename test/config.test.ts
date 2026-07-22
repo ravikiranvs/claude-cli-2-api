@@ -34,4 +34,16 @@ describe("loadConfig", () => {
 
     expect(config.adminSessionSecret).toBe("hunter2");
   });
+
+  it("reads the uploads directory from the environment", () => {
+    const config = loadConfig({ UPLOADS_DIR: "/data/my-uploads" });
+
+    expect(config.uploadsDir).toBe("/data/my-uploads");
+  });
+
+  it("falls back to a default uploads directory when unset", () => {
+    const config = loadConfig({});
+
+    expect(config.uploadsDir).toBe("./data/uploads");
+  });
 });
