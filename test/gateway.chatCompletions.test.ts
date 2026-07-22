@@ -10,11 +10,20 @@ class FailingClaudeSubprocess implements ClaudeSubprocess {
   send(): Promise<ClaudeSubprocessResult> {
     return Promise.reject(new Error("claude subprocess exited with code 1: not authenticated"));
   }
+
+  // eslint-disable-next-line require-yield
+  async *stream(): AsyncIterable<string> {
+    throw new Error("claude subprocess exited with code 1: not authenticated");
+  }
 }
 
 class GarbageClaudeSubprocess implements ClaudeSubprocess {
   send(): Promise<ClaudeSubprocessResult> {
     return Promise.resolve({ raw: "not json at all" });
+  }
+
+  async *stream(): AsyncIterable<string> {
+    yield "not json at all";
   }
 }
 

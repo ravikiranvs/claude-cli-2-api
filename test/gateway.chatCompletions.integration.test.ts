@@ -76,4 +76,36 @@ describe("Gateway auth + chat completions (integration)", () => {
     expect(trace.endpoint).toBe("/v1/chat/completions");
     expect(trace.gateway_api_key_id).toBeTypeOf("number");
   });
+
+  it("streams a valid, authenticated request as SSE and traces the assembled response", async () => {
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: "claude", messages: [{ role: "user", content: "hi" }], stream: true }),
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(body).toContain("chat.completion.chunk");
+    expect(body.trim().endsWith("data: [DONE]")).toBe(true);
+
+    const traceDb = openDatabase(databasePath);
+    const trace = traceDb.prepare("SELECT * FROM traces").get() as Record<string, unknown>;
+    traceDb.close();
+
+    expect(trace.http_status).toBe(200);
+    expect(String(trace.response_body)).toContain("stubbed response");
+    expect(trace.gateway_api_key_id).toBeTypeOf("number");
+  });
+
+  it("rejects a streaming request with no Gateway API Key with 401", async () => {
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude", messages: [{ role: "user", content: "hi" }], stream: true }),
+    });
+
+    expect(response.status).toBe(401);
+  });
 });

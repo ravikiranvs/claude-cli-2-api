@@ -5,4 +5,6 @@ export interface ClaudeSubprocessResult {
 
 export interface ClaudeSubprocess {
   send(prompt: string): Promise<ClaudeSubprocessResult>;
+  /** Yields each raw `stream-json` line as it is produced, in order. */
+  stream(prompt: string): AsyncIterable<string>;
 }

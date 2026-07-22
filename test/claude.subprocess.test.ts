@@ -23,4 +23,19 @@ describe("createClaudeSubprocess", () => {
     expect(real).not.toBe(stubbed);
     expect(real.constructor).not.toBe(stubbed.constructor);
   });
+
+  it("streams the same canned lines as `send` returns, one per iteration", async () => {
+    const subprocess = createClaudeSubprocess({ stub: true });
+
+    const lines: string[] = [];
+    for await (const line of subprocess.stream("hello")) {
+      lines.push(line);
+    }
+
+    expect(lines).toEqual([
+      '{"type":"system","subtype":"init"}',
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"stubbed response"}]}}',
+      '{"type":"result","subtype":"success","result":"stubbed response"}',
+    ]);
+  });
 });
