@@ -5,6 +5,7 @@ import { openDatabase } from "../db/connection.js";
 import { registerHealthRoute } from "../health.js";
 import { registerGatewayAuthHook } from "./auth.js";
 import { registerChatCompletionsRoute } from "./chatCompletions.js";
+import { registerCompletionsRoute } from "./completions.js";
 import { TokenPerMinuteRateLimiter } from "./rateLimiter.js";
 
 export function buildGatewayServer(config: Config): FastifyInstance {
@@ -23,6 +24,7 @@ export function buildGatewayServer(config: Config): FastifyInstance {
   server.register(async (instance) => {
     registerGatewayAuthHook(instance, db);
     registerChatCompletionsRoute(instance, db, claudeSubprocess, rateLimiter);
+    registerCompletionsRoute(instance, db, claudeSubprocess, rateLimiter);
   });
 
   return server;
