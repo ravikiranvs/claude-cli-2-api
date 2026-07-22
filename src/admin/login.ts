@@ -37,7 +37,7 @@ function renderLoginPage(error?: string): string {
 
 export function registerLoginRoutes(server: FastifyInstance, config: Config): void {
   server.get(LOGIN_PATH, async (_request, reply) => {
-    reply.type("text/html").send(renderLoginPage());
+    return reply.type("text/html").send(renderLoginPage());
   });
 
   server.post<{ Body: LoginBody }>(LOGIN_PATH, async (request, reply) => {
@@ -53,8 +53,7 @@ export function registerLoginRoutes(server: FastifyInstance, config: Config): vo
       safeCompare(password, config.adminPassword);
 
     if (!validUsername || !validPassword) {
-      reply.status(401).type("text/html").send(renderLoginPage("Invalid username or password"));
-      return;
+      return reply.status(401).type("text/html").send(renderLoginPage("Invalid username or password"));
     }
 
     const token = signSessionToken(config.adminUsername, config.adminSessionSecret, {
@@ -66,6 +65,6 @@ export function registerLoginRoutes(server: FastifyInstance, config: Config): vo
       sameSite: "lax",
       maxAge: SESSION_TTL_SECONDS,
     });
-    reply.redirect("/");
+    return reply.redirect("/");
   });
 }

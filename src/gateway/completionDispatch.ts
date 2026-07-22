@@ -19,13 +19,14 @@ export interface NonStreamingDispatchParams {
   buildResponseBody: (assistantText: string, promptTokens: number, completionTokens: number) => unknown;
 }
 
+
 /**
  * Shared non-streaming request path: rate-limit admission, Claude Subprocess dispatch, output
  * extraction, and Trace-writing. Used by both /v1/chat/completions (non-streaming) and the
  * legacy /v1/completions endpoint so both go through identical auth, dispatch, and
  * Trace-writing behavior — only prompt construction and response shape differ per caller.
  */
-export async function dispatchNonStreamingCompletion(params: NonStreamingDispatchParams): Promise<void> {
+export async function dispatchNonStreamingCompletion(params: NonStreamingDispatchParams): Promise<FastifyReply> {
   const {
     db,
     claudeSubprocess,
@@ -39,8 +40,8 @@ export async function dispatchNonStreamingCompletion(params: NonStreamingDispatc
     buildResponseBody,
   } = params;
 
-  const sendError = (httpStatus: number, message: string, type: string): void => {
-    sendErrorAndTrace(reply, db, endpoint, gatewayApiKeyId, requestBodyJson, httpStatus, message, type);
+  const sendError = (httpStatus: number, message: string, type: string): FastifyReply => {
+    return sendErrorAndTrace(reply, db, endpoint, gatewayApiKeyId, requestBodyJson, httpStatus, message, type);
   };
 
   // Captured once so a request's prompt and completion tokens are always charged to the
@@ -53,32 +54,29 @@ export async function dispatchNonStreamingCompletion(params: NonStreamingDispatc
     rateLimitTpm !== null &&
     !rateLimiter.tryConsume(gatewayApiKeyId, rateLimitTpm, promptTokens, rateLimitNow)
   ) {
-    sendError(
+    return sendError(
       429,
       `Rate limit exceeded: this Gateway API Key is limited to ${rateLimitTpm} tokens per minute`,
       "rate_limit_error",
     );
-    return;
   }
 
   let raw: string;
   try {
     raw = (await claudeSubprocess.send(prompt)).raw;
   } catch (err) {
-    sendError(502, `Claude Subprocess failed: ${err instanceof Error ? err.message : String(err)}`, "api_error");
-    return;
+    return sendError(502, `Claude Subprocess failed: ${err instanceof Error ? err.message : String(err)}`, "api_error");
   }
 
   let assistantText: string;
   try {
     assistantText = extractAssistantText(raw);
   } catch (err) {
-    sendError(
+    return sendError(
       502,
       `Claude Subprocess returned an unparseable response: ${err instanceof Error ? err.message : String(err)}`,
       "api_error",
     );
-    return;
   }
 
   const completionTokens = estimateTokens(assistantText);
@@ -95,5 +93,5 @@ export async function dispatchNonStreamingCompletion(params: NonStreamingDispatc
     responseBody: JSON.stringify(responseBody),
     tokenCount: promptTokens + completionTokens,
   });
-  reply.status(200).send(responseBody);
+  return reply.status(200).send(responseBody);
 }

@@ -56,7 +56,7 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
       uploaded = undefined;
     }
     if (!uploaded) {
-      sendErrorAndTrace(
+      return sendErrorAndTrace(
         reply,
         db,
         FILES_PATH,
@@ -66,7 +66,6 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
         "A multipart `file` field is required",
         "invalid_request_error",
       );
-      return;
     }
 
     const buffer = await uploaded.toBuffer();
@@ -87,7 +86,7 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
     } catch (err) {
       // The row was never created, so the file we just wrote would otherwise be orphaned.
       await rm(storagePath, { force: true });
-      sendErrorAndTrace(
+      return sendErrorAndTrace(
         reply,
         db,
         FILES_PATH,
@@ -97,12 +96,11 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
         `Failed to record uploaded file: ${err instanceof Error ? err.message : String(err)}`,
         "api_error",
       );
-      return;
     }
 
     const responseBody = toFileObject(created);
     recordTrace(FILES_PATH, gatewayApiKeyId, requestBodyJson, 200, responseBody);
-    reply.status(200).send(responseBody);
+    return reply.status(200).send(responseBody);
   });
 
   server.get(FILES_PATH, async (request, reply) => {
@@ -110,7 +108,7 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
     const files = listUploadedFiles(db);
     const responseBody = { object: "list", data: files.map(toFileObject) };
     recordTrace(FILES_PATH, gatewayApiKeyId, JSON.stringify({}), 200, responseBody);
-    reply.status(200).send(responseBody);
+    return reply.status(200).send(responseBody);
   });
 
   server.delete<{ Params: { id: string } }>(`${FILES_PATH}/:id`, async (request, reply) => {
@@ -120,7 +118,7 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
 
     const file = getUploadedFile(db, id);
     if (!file) {
-      sendErrorAndTrace(
+      return sendErrorAndTrace(
         reply,
         db,
         `${FILES_PATH}/:id`,
@@ -130,7 +128,6 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
         `No such file: ${id}`,
         "invalid_request_error",
       );
-      return;
     }
 
     try {
@@ -139,7 +136,7 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
       // Disk delete failed for a reason other than "already gone" (force swallows ENOENT) —
       // leave the DB row in place so the file stays discoverable/retryable rather than orphaning
       // the on-disk bytes with no tracking.
-      sendErrorAndTrace(
+      return sendErrorAndTrace(
         reply,
         db,
         `${FILES_PATH}/:id`,
@@ -149,12 +146,11 @@ export function registerFilesRoutes(server: FastifyInstance, db: Database.Databa
         `Failed to delete file from disk: ${err instanceof Error ? err.message : String(err)}`,
         "api_error",
       );
-      return;
     }
     deleteUploadedFile(db, id);
 
     const responseBody = { id, object: "file", deleted: true };
     recordTrace(`${FILES_PATH}/:id`, gatewayApiKeyId, requestBodyJson, 200, responseBody);
-    reply.status(200).send(responseBody);
+    return reply.status(200).send(responseBody);
   });
 }

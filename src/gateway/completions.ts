@@ -26,7 +26,7 @@ export function registerCompletionsRoute(
     const rateLimitTpm = request.gatewayApiKeyRateLimitTpm ?? null;
 
     if (typeof model !== "string" || model.length === 0 || typeof prompt !== "string" || prompt.length === 0) {
-      sendErrorAndTrace(
+      return sendErrorAndTrace(
         reply,
         db,
         COMPLETIONS_PATH,
@@ -36,10 +36,9 @@ export function registerCompletionsRoute(
         "`model` and a non-empty `prompt` string are required",
         "invalid_request_error",
       );
-      return;
     }
 
-    await dispatchNonStreamingCompletion({
+    return await dispatchNonStreamingCompletion({
       db,
       claudeSubprocess,
       rateLimiter,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ClaudeSubprocess } from "../claude/types.js";
 import { insertTrace } from "../db/traces.js";
 import { createFileResolver, validateFileReferences } from "./chatFiles.js";
@@ -146,8 +146,8 @@ export function registerChatCompletionsRoute(
       const gatewayApiKeyId = request.gatewayApiKeyId ?? null;
       const rateLimitTpm = request.gatewayApiKeyRateLimitTpm ?? null;
 
-      const sendError = (httpStatus: number, message: string, type: string): void => {
-        sendErrorAndTrace(
+      const sendError = (httpStatus: number, message: string, type: string): FastifyReply => {
+        return sendErrorAndTrace(
           reply,
           db,
           CHAT_COMPLETIONS_PATH,
@@ -160,29 +160,25 @@ export function registerChatCompletionsRoute(
       };
 
       if (typeof model !== "string" || model.length === 0 || !isValidMessages(messages)) {
-        sendError(
+        return sendError(
           400,
           "`model` and a non-empty `messages` array (each with string `role` and `content`) are required",
           "invalid_request_error",
         );
-        return;
       }
 
       const imageValidationError = validateImageContent(messages);
       if (imageValidationError !== null) {
-        sendError(400, imageValidationError, "invalid_request_error");
-        return;
+        return sendError(400, imageValidationError, "invalid_request_error");
       }
 
       const fileValidationError = validateFileReferences(messages, db);
       if (fileValidationError !== null) {
-        sendError(400, fileValidationError, "invalid_request_error");
-        return;
+        return sendError(400, fileValidationError, "invalid_request_error");
       }
 
       if (!isValidTools(tools) || !isValidTools(functions)) {
-        sendError(400, "`tools` and `functions`, when present, must be arrays", "invalid_request_error");
-        return;
+        return sendError(400, "`tools` and `functions`, when present, must be arrays", "invalid_request_error");
       }
 
       let prompt: string;
@@ -190,18 +186,17 @@ export function registerChatCompletionsRoute(
       try {
         ({ prompt, cleanup: cleanupImages } = await buildPrompt(messages, { resolveFile: createFileResolver(db) }));
       } catch (err) {
-        sendError(
+        return sendError(
           502,
           `Failed to process image content: ${err instanceof Error ? err.message : String(err)}`,
           "api_error",
         );
-        return;
       }
       prompt = appendToolsToPrompt(prompt, resolveTools({ tools, functions }));
 
       try {
         if (!request.body?.stream) {
-          await dispatchNonStreamingCompletion({
+          return await dispatchNonStreamingCompletion({
             db,
             claudeSubprocess,
             rateLimiter,
@@ -223,7 +218,6 @@ export function registerChatCompletionsRoute(
               },
             }),
           });
-          return;
         }
 
         const promptTokens = estimateTokens(prompt);
@@ -234,12 +228,11 @@ export function registerChatCompletionsRoute(
           rateLimitTpm !== null &&
           !rateLimiter.tryConsume(gatewayApiKeyId, rateLimitTpm, promptTokens, rateLimitNow)
         ) {
-          sendError(
+          return sendError(
             429,
             `Rate limit exceeded: this Gateway API Key is limited to ${rateLimitTpm} tokens per minute`,
             "rate_limit_error",
           );
-          return;
         }
 
         const iterator = claudeSubprocess.stream(prompt)[Symbol.asyncIterator]();
@@ -248,21 +241,19 @@ export function registerChatCompletionsRoute(
         try {
           first = await iterator.next();
         } catch (err) {
-          sendError(
+          return sendError(
             502,
             `Claude Subprocess failed: ${err instanceof Error ? err.message : String(err)}`,
             "api_error",
           );
-          return;
         }
 
         if (first.done) {
-          sendError(
+          return sendError(
             502,
             `Claude Subprocess returned an unparseable response: ${NO_PARSEABLE_OUTPUT_MESSAGE}`,
             "api_error",
           );
-          return;
         }
 
         reply.hijack();

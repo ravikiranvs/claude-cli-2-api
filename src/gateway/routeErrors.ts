@@ -16,7 +16,7 @@ export function sendErrorAndTrace(
   httpStatus: number,
   message: string,
   type: string,
-): void {
+): FastifyReply {
   const body = gatewayErrorBody(message, type);
   insertTrace(db, {
     gatewayApiKeyId,
@@ -26,5 +26,5 @@ export function sendErrorAndTrace(
     responseBody: JSON.stringify(body),
     tokenCount: null,
   });
-  reply.status(httpStatus).send(body);
+  return reply.status(httpStatus).send(body);
 }

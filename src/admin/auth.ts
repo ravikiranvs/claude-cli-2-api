@@ -15,7 +15,7 @@ export function registerAuthHook(server: FastifyInstance, config: Config): void 
     const session = token ? verifySessionToken(token, config.adminSessionSecret) : null;
 
     if (!session) {
-      reply.redirect(LOGIN_PATH);
+      return reply.redirect(LOGIN_PATH);
     }
   });
 }

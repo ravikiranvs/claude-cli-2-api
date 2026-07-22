@@ -78,13 +78,12 @@ export function registerTracesRoutes(server: FastifyInstance, db: Database.Datab
     if (rawKeyId !== undefined && rawKeyId !== "") {
       const parsed = Number(rawKeyId);
       if (!Number.isInteger(parsed) || parsed <= 0) {
-        reply.status(400).send();
-        return;
+        return reply.status(400).send();
       }
       keyId = parsed;
     }
 
     const traces = listTraces(db, keyId !== undefined ? { keyId } : {});
-    reply.type("text/html").send(renderTracesPage(traces, listAllApiKeys(db), keyId));
+    return reply.type("text/html").send(renderTracesPage(traces, listAllApiKeys(db), keyId));
   });
 }

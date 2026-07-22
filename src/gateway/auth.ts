@@ -26,8 +26,7 @@ export function registerGatewayAuthHook(server: FastifyInstance, db: Database.Da
     const key = extractBearerKey(request.headers.authorization);
 
     if (!key) {
-      reply.status(401).send(gatewayErrorBody("Missing Gateway API Key", "invalid_request_error"));
-      return;
+      return reply.status(401).send(gatewayErrorBody("Missing Gateway API Key", "invalid_request_error"));
     }
 
     const row = db
@@ -35,8 +34,7 @@ export function registerGatewayAuthHook(server: FastifyInstance, db: Database.Da
       .get(hashGatewayApiKey(key)) as { id: number; rate_limit_tpm: number } | undefined;
 
     if (!row) {
-      reply.status(401).send(gatewayErrorBody("Invalid Gateway API Key", "invalid_request_error"));
-      return;
+      return reply.status(401).send(gatewayErrorBody("Invalid Gateway API Key", "invalid_request_error"));
     }
 
     request.gatewayApiKeyId = row.id;

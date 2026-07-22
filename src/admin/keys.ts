@@ -69,7 +69,7 @@ export function registerKeysRoutes(server: FastifyInstance, db: Database.Databas
   registerNoStoreHook(server, KEYS_PATH);
 
   server.get(KEYS_PATH, async (_request, reply) => {
-    reply.type("text/html").send(renderKeysPage(listActiveApiKeys(db)));
+    return reply.type("text/html").send(renderKeysPage(listActiveApiKeys(db)));
   });
 
   server.post<{ Body: CreateKeyBody }>(KEYS_PATH, async (request, reply) => {
@@ -78,7 +78,7 @@ export function registerKeysRoutes(server: FastifyInstance, db: Database.Databas
     const parsedRateLimit = Number(rateLimitTpm);
 
     if (trimmedName.length === 0 || !Number.isInteger(parsedRateLimit) || parsedRateLimit <= 0) {
-      reply
+      return reply
         .status(400)
         .type("text/html")
         .send(
@@ -86,11 +86,10 @@ export function registerKeysRoutes(server: FastifyInstance, db: Database.Databas
             error: "Name and a positive whole-number Rate Limit are required",
           }),
         );
-      return;
     }
 
     const created = createApiKey(db, trimmedName, parsedRateLimit);
-    reply
+    return reply
       .type("text/html")
       .send(renderKeysPage(listActiveApiKeys(db), { createdKey: { name: created.name, key: created.key } }));
   });
@@ -98,11 +97,10 @@ export function registerKeysRoutes(server: FastifyInstance, db: Database.Databas
   server.post<{ Params: RevokeKeyParams }>(`${KEYS_PATH}/:id/revoke`, async (request, reply) => {
     const id = Number(request.params.id);
     if (!Number.isInteger(id)) {
-      reply.status(400).send();
-      return;
+      return reply.status(400).send();
     }
 
     revokeApiKey(db, id);
-    reply.redirect(KEYS_PATH);
+    return reply.redirect(KEYS_PATH);
   });
 }
