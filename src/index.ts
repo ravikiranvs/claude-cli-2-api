@@ -20,8 +20,8 @@ export async function start(env: Partial<Record<string, string>>): Promise<Runni
   const gateway = buildGatewayServer(config);
   const admin = await buildAdminServer(config);
 
-  const gatewayAddress = await gateway.listen({ port: config.gatewayPort, host: "127.0.0.1" });
-  const adminAddress = await admin.listen({ port: config.adminPort, host: "127.0.0.1" });
+  const gatewayAddress = await gateway.listen({ port: config.gatewayPort, host: config.host });
+  const adminAddress = await admin.listen({ port: config.adminPort, host: config.host });
 
   console.log(`Gateway listening at ${gatewayAddress}`);
   console.log(`Admin Console listening at ${adminAddress}`);

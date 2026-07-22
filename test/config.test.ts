@@ -46,4 +46,16 @@ describe("loadConfig", () => {
 
     expect(config.uploadsDir).toBe("./data/uploads");
   });
+
+  it("reads the bind host from the environment", () => {
+    const config = loadConfig({ HOST: "127.0.0.1" });
+
+    expect(config.host).toBe("127.0.0.1");
+  });
+
+  it("falls back to binding all interfaces when HOST is unset", () => {
+    const config = loadConfig({});
+
+    expect(config.host).toBe("0.0.0.0");
+  });
 });

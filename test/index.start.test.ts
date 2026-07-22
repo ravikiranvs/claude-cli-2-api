@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,6 +23,7 @@ describe("start", () => {
     servers = await start({
       GATEWAY_PORT: "34561",
       ADMIN_PORT: "34562",
+      HOST: "127.0.0.1",
       DATABASE_PATH: join(dir, "gateway.db"),
     });
 
@@ -33,5 +35,18 @@ describe("start", () => {
 
     expect(gatewayHealth.status).toBe(200);
     expect(adminHealth.status).toBe(200);
+  });
+
+  it("binds all interfaces by default", async () => {
+    dir = mkdtempSync(join(tmpdir(), "gateway-start-"));
+
+    servers = await start({
+      GATEWAY_PORT: "34563",
+      ADMIN_PORT: "34564",
+      DATABASE_PATH: join(dir, "gateway.db"),
+    });
+
+    expect((servers.gateway.server.address() as AddressInfo).address).toBe("0.0.0.0");
+    expect((servers.admin.server.address() as AddressInfo).address).toBe("0.0.0.0");
   });
 });
