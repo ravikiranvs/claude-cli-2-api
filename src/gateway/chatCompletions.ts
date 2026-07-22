@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import type { ClaudeSubprocess } from "../claude/types.js";
 import { insertTrace } from "../db/traces.js";
 import { gatewayErrorBody } from "./errorBody.js";
+import type { TokenPerMinuteRateLimiter } from "./rateLimiter.js";
 
 export const CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
 
@@ -202,11 +203,13 @@ export function registerChatCompletionsRoute(
   server: FastifyInstance,
   db: Database.Database,
   claudeSubprocess: ClaudeSubprocess,
+  rateLimiter: TokenPerMinuteRateLimiter,
 ): void {
   server.post<{ Body: ChatCompletionRequestBody }>(CHAT_COMPLETIONS_PATH, async (request, reply) => {
     const { model, messages } = request.body ?? {};
     const requestBodyJson = JSON.stringify(request.body ?? {});
     const gatewayApiKeyId = request.gatewayApiKeyId ?? null;
+    const rateLimitTpm = request.gatewayApiKeyRateLimitTpm ?? null;
 
     const recordTrace = (httpStatus: number, responseBody: unknown, tokenCount: number | null): void => {
       insertTrace(db, {
@@ -225,6 +228,17 @@ export function registerChatCompletionsRoute(
       reply.status(httpStatus).send(body);
     };
 
+    // Captured once so a request's prompt and completion tokens are always charged to the
+    // same rate-limit window, even if the Claude Subprocess call straddles a minute boundary.
+    const rateLimitNow = Date.now();
+    const recordCompletionTokens = (assistantText: string): number => {
+      const completionTokens = estimateTokens(assistantText);
+      if (gatewayApiKeyId !== null) {
+        rateLimiter.record(gatewayApiKeyId, completionTokens, rateLimitNow);
+      }
+      return completionTokens;
+    };
+
     if (typeof model !== "string" || model.length === 0 || !isValidMessages(messages)) {
       sendError(
         400,
@@ -236,6 +250,19 @@ export function registerChatCompletionsRoute(
 
     const prompt = buildPrompt(messages);
     const promptTokens = estimateTokens(prompt);
+
+    if (
+      gatewayApiKeyId !== null &&
+      rateLimitTpm !== null &&
+      !rateLimiter.tryConsume(gatewayApiKeyId, rateLimitTpm, promptTokens, rateLimitNow)
+    ) {
+      sendError(
+        429,
+        `Rate limit exceeded: this Gateway API Key is limited to ${rateLimitTpm} tokens per minute`,
+        "rate_limit_error",
+      );
+      return;
+    }
 
     if (request.body?.stream) {
       const iterator = claudeSubprocess.stream(prompt)[Symbol.asyncIterator]();
@@ -273,7 +300,7 @@ export function registerChatCompletionsRoute(
       );
       reply.raw.end();
 
-      const completionTokens = estimateTokens(assistantText);
+      const completionTokens = recordCompletionTokens(assistantText);
       const responseBody: Record<string, unknown> = {
         ...buildCompletionResponse(meta, assistantText),
         usage: {
@@ -312,7 +339,7 @@ export function registerChatCompletionsRoute(
       return;
     }
 
-    const completionTokens = estimateTokens(assistantText);
+    const completionTokens = recordCompletionTokens(assistantText);
     const meta: ResponseMeta = { id: `chatcmpl-${randomUUID()}`, created: Math.floor(Date.now() / 1000), model };
     const responseBody = {
       ...buildCompletionResponse(meta, assistantText),

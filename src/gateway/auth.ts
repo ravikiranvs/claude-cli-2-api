@@ -6,6 +6,7 @@ import { gatewayErrorBody } from "./errorBody.js";
 declare module "fastify" {
   interface FastifyRequest {
     gatewayApiKeyId?: number;
+    gatewayApiKeyRateLimitTpm?: number;
   }
 }
 
@@ -19,6 +20,7 @@ function extractBearerKey(header: string | undefined): string | null {
 
 export function registerGatewayAuthHook(server: FastifyInstance, db: Database.Database): void {
   server.decorateRequest("gatewayApiKeyId", undefined);
+  server.decorateRequest("gatewayApiKeyRateLimitTpm", undefined);
 
   server.addHook("onRequest", async (request, reply) => {
     const key = extractBearerKey(request.headers.authorization);
@@ -29,8 +31,8 @@ export function registerGatewayAuthHook(server: FastifyInstance, db: Database.Da
     }
 
     const row = db
-      .prepare("SELECT id FROM gateway_api_keys WHERE key_hash = ? AND revoked_at IS NULL")
-      .get(hashGatewayApiKey(key)) as { id: number } | undefined;
+      .prepare("SELECT id, rate_limit_tpm FROM gateway_api_keys WHERE key_hash = ? AND revoked_at IS NULL")
+      .get(hashGatewayApiKey(key)) as { id: number; rate_limit_tpm: number } | undefined;
 
     if (!row) {
       reply.status(401).send(gatewayErrorBody("Invalid Gateway API Key", "invalid_request_error"));
@@ -38,5 +40,6 @@ export function registerGatewayAuthHook(server: FastifyInstance, db: Database.Da
     }
 
     request.gatewayApiKeyId = row.id;
+    request.gatewayApiKeyRateLimitTpm = row.rate_limit_tpm;
   });
 }

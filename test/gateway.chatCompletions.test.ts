@@ -4,6 +4,7 @@ import { StubClaudeSubprocess } from "../src/claude/stub.js";
 import type { ClaudeSubprocess, ClaudeSubprocessResult } from "../src/claude/types.js";
 import { openDatabase } from "../src/db/connection.js";
 import { registerChatCompletionsRoute } from "../src/gateway/chatCompletions.js";
+import { TokenPerMinuteRateLimiter } from "../src/gateway/rateLimiter.js";
 import type Database from "better-sqlite3";
 
 class FailingClaudeSubprocess implements ClaudeSubprocess {
@@ -30,7 +31,7 @@ class GarbageClaudeSubprocess implements ClaudeSubprocess {
 function buildTestServer(claudeSubprocess: ClaudeSubprocess): { server: FastifyInstance; db: Database.Database } {
   const db = openDatabase(":memory:");
   const server = Fastify();
-  registerChatCompletionsRoute(server, db, claudeSubprocess);
+  registerChatCompletionsRoute(server, db, claudeSubprocess, new TokenPerMinuteRateLimiter());
   return { server, db };
 }
 

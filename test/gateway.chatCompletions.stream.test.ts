@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ClaudeSubprocess, ClaudeSubprocessResult } from "../src/claude/types.js";
 import { openDatabase } from "../src/db/connection.js";
 import { registerChatCompletionsRoute } from "../src/gateway/chatCompletions.js";
+import { TokenPerMinuteRateLimiter } from "../src/gateway/rateLimiter.js";
 import type Database from "better-sqlite3";
 
 class LinesClaudeSubprocess implements ClaudeSubprocess {
@@ -56,7 +57,7 @@ const divergentResultLines = [
 function buildTestServer(claudeSubprocess: ClaudeSubprocess): { server: FastifyInstance; db: Database.Database } {
   const db = openDatabase(":memory:");
   const server = Fastify();
-  registerChatCompletionsRoute(server, db, claudeSubprocess);
+  registerChatCompletionsRoute(server, db, claudeSubprocess, new TokenPerMinuteRateLimiter());
   return { server, db };
 }
 

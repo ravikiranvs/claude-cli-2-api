@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { CONCURRENCY_POOL_SIZE, PooledClaudeSubprocess, Semaphore } from "../src/claude/concurrencyPool.js";
 import { openDatabase } from "../src/db/connection.js";
 import { registerChatCompletionsRoute } from "../src/gateway/chatCompletions.js";
+import { TokenPerMinuteRateLimiter } from "../src/gateway/rateLimiter.js";
 import { SlowClaudeSubprocess } from "./fixtures/slowClaudeSubprocess.js";
 import type Database from "better-sqlite3";
 
@@ -27,7 +28,7 @@ describe("POST /v1/chat/completions (Concurrency Pool)", () => {
 
     db = openDatabase(":memory:");
     server = Fastify();
-    registerChatCompletionsRoute(server, db, claudeSubprocess);
+    registerChatCompletionsRoute(server, db, claudeSubprocess, new TokenPerMinuteRateLimiter());
     const baseUrl = await server.listen({ port: 0, host: "127.0.0.1" });
 
     const requestCount = CONCURRENCY_POOL_SIZE + 2;
