@@ -5,6 +5,8 @@ import type { ClaudeSubprocess } from "../claude/types.js";
 import { insertTrace } from "../db/traces.js";
 import { buildPromptWithImages, isValidContent, MAX_REQUEST_BODY_BYTES, validateImageContent } from "./chatImages.js";
 import type { ChatMessageInput } from "./chatImages.js";
+import { appendToolsToPrompt, isValidTools, resolveTools } from "./chatTools.js";
+import type { ChatToolsRequestBody } from "./chatTools.js";
 import { estimateTokens, extractTextFromLine, NO_PARSEABLE_OUTPUT_MESSAGE } from "./claudeOutput.js";
 import { dispatchNonStreamingCompletion } from "./completionDispatch.js";
 import { gatewayErrorBody } from "./errorBody.js";
@@ -15,7 +17,7 @@ export const CHAT_COMPLETIONS_PATH = "/v1/chat/completions";
 
 type ChatMessage = ChatMessageInput;
 
-interface ChatCompletionRequestBody {
+interface ChatCompletionRequestBody extends ChatToolsRequestBody {
   model?: string;
   messages?: ChatMessage[];
   stream?: boolean;
@@ -138,7 +140,7 @@ export function registerChatCompletionsRoute(
     CHAT_COMPLETIONS_PATH,
     { bodyLimit: MAX_REQUEST_BODY_BYTES },
     async (request, reply) => {
-      const { model, messages } = request.body ?? {};
+      const { model, messages, tools, functions } = request.body ?? {};
       const requestBodyJson = JSON.stringify(request.body ?? {});
       const gatewayApiKeyId = request.gatewayApiKeyId ?? null;
       const rateLimitTpm = request.gatewayApiKeyRateLimitTpm ?? null;
@@ -171,6 +173,11 @@ export function registerChatCompletionsRoute(
         return;
       }
 
+      if (!isValidTools(tools) || !isValidTools(functions)) {
+        sendError(400, "`tools` and `functions`, when present, must be arrays", "invalid_request_error");
+        return;
+      }
+
       let prompt: string;
       let cleanupImages: () => Promise<void>;
       try {
@@ -183,6 +190,7 @@ export function registerChatCompletionsRoute(
         );
         return;
       }
+      prompt = appendToolsToPrompt(prompt, resolveTools({ tools, functions }));
 
       try {
         if (!request.body?.stream) {
