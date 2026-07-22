@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PooledClaudeSubprocess } from "../src/claude/concurrencyPool.js";
 import { createClaudeSubprocess } from "../src/claude/index.js";
 
 describe("createClaudeSubprocess", () => {
@@ -16,12 +17,15 @@ describe("createClaudeSubprocess", () => {
     );
   });
 
-  it("returns the real subprocess implementation when test mode is not enabled", () => {
-    const stubbed = createClaudeSubprocess({ stub: true });
-    const real = createClaudeSubprocess({ stub: false });
+  it("wraps the real subprocess implementation when test mode is not enabled, and a distinct instance each call", () => {
+    const stubbed = createClaudeSubprocess({ stub: true }) as PooledClaudeSubprocess;
+    const real = createClaudeSubprocess({ stub: false }) as PooledClaudeSubprocess;
 
     expect(real).not.toBe(stubbed);
-    expect(real.constructor).not.toBe(stubbed.constructor);
+    expect(real.inner.constructor).not.toBe(stubbed.inner.constructor);
+    expect((createClaudeSubprocess({ stub: true }) as PooledClaudeSubprocess).inner.constructor).toBe(
+      stubbed.inner.constructor,
+    );
   });
 
   it("streams the same canned lines as `send` returns, one per iteration", async () => {
